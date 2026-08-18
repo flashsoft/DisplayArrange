@@ -12,3 +12,6 @@ displayarrange
 *.swp
 *.swo
 *~
+
+# Build artifacts
+DisplayArrange.app/

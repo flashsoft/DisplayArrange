@@ -1,6 +1,6 @@
-# displayarrange
+# DisplayArrange
 
-> macOS 多显示器布局救星：锁屏/睡眠后自动恢复双屏排列，不再每次手动拖。
+> macOS 菜单栏小工具：锁屏/睡眠后自动恢复双屏排列，不再每次手动拖。
 
 [English](#english) | 中文
 
@@ -10,94 +10,85 @@
 
 macOS 在锁屏、睡眠或显示器重新握手后，经常把多显示器的相对位置重置成默认的"左右并排"。这是因为系统按 `CGDirectDisplayID` 记忆布局，而这个 ID 每次唤醒都可能重新分配，导致"认不出"原来的屏幕组合。
 
-`displayarrange` 是一个约 500 行的单文件 C 工具，用 **display unit**（绑定物理端口的稳定标识）而不是会漂移的 display ID 来识别显示器，所以唤醒后 ID 重排也能准确还原你的布局。
+DisplayArrange 用 **display unit**（绑定物理端口的稳定标识）而不是会漂移的 display ID 来识别显示器，所以唤醒后 ID 重排也能准确还原你的布局。
 
-## 特性
+## 安装
 
-- **稳定识别**：主键用 `CGDisplayUnitNumber`，重启/唤醒/ID 重排都不会认错屏幕
-- **自动恢复**：watch 模式监听 `com.apple.screenIsUnlocked`，解锁后自动摆正
-- **手动触发**：`apply` / `apply-if-different` 随时手动恢复
-- **零依赖**：单文件 C，只链 CoreGraphics / CoreFoundation / IOKit 系统框架
-- **JSON 配置**：人类可读的布局文件，存 `~/.config/displayarrange/layout.json`
-- **LaunchAgent 常驻**：开机自启，后台静默运行
+### 方式一：下载 App（推荐）
 
-## 快速开始
+从 [Releases](../../releases) 下载 `DisplayArrange.app.zip`，解压后拖进「应用程序」文件夹即可。
 
-### 编译
+首次打开如果提示"未受信任的开发者"，在 系统设置 → 隐私与安全性 里点"仍要打开"。
 
-```sh
-cc -O2 -o displayarrange displayarrange.c \
-   -framework CoreGraphics -framework CoreFoundation -framework IOKit
-```
+### 方式二：自己编译
 
-### 使用
+需要 macOS 13+ 和 Xcode Command Line Tools。
 
 ```sh
-# 1. 在 系统设置 > 显示器 里摆好你的双屏位置，然后：
-./displayarrange save
-
-# 2. 锁屏再解锁，看看布局有没有被重置：
-./displayarrange list          # 查看当前布局
-./displayarrange apply         # 手动恢复
-
-# 3. 让它自动恢复：
-./displayarrange watch &
+git clone https://github.com/你的用户名/displayarrange.git
+cd displayarrange
+make app
+open DisplayArrange.app
 ```
 
-### 开机自启（推荐）
+编译产物是 `DisplayArrange.app`，可以拖到「应用程序」或任何位置。
 
-```sh
-# 把二进制放到稳定位置
-mkdir -p ~/bin
-cp displayarrange ~/bin/
+## 使用
 
-# 装 LaunchAgent
-cp com.user.displayarrange.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.user.displayarrange.plist
-```
+启动后菜单栏会出现一个双屏图标，点开就是控制面板：
 
-日志写到 `/tmp/displayarrange.log`。
-
-停止：
-
-```sh
-launchctl unload ~/Library/LaunchAgents/com.user.displayarrange.plist
-```
-
-## 命令一览
-
-| 命令 | 作用 |
+| 功能 | 说明 |
 |------|------|
-| `list` | 列出所有连接的显示器（unit、原点、分辨率） |
-| `save [path]` | 保存当前布局到 JSON（默认 `~/.config/displayarrange/layout.json`） |
-| `apply [path]` | 立即恢复保存的布局 |
-| `apply-if-different [path]` | 仅在布局漂移时恢复（脚本里用） |
-| `watch [path]` | 后台监听解锁事件，自动恢复 |
+| **状态栏** | 显示当前连接了几台显示器、是否已保存布局 |
+| **保存当前布局** | 把现在的排列记下来（快捷键 `⌘S`） |
+| **立即恢复布局** | 马上摆回保存的位置（快捷键 `⌘R`） |
+| **解锁后自动恢复** | 开关。打开后每次解锁都会自动摆正 |
+| **延迟滑块** | 解锁后等 0–5 秒再恢复，给显示器重新握手留时间 |
+| **开机自动启动** | 登录后自动运行，不用手动开 |
+| **退出** | 完全退出 |
 
-### watch 参数
+### 推荐工作流
 
-- `--debounce N`：解锁后等 N 毫秒再操作（默认 800，给显示器重新握手留时间）
-- `--verbose`：打印详细日志
+1. 在 系统设置 → 显示器 里把双屏摆成你想要的样子
+2. 点菜单栏图标 → **保存当前布局**
+3. 打开 **解锁后自动恢复** 和 **开机自动启动**
+4. 以后每次锁屏解锁，布局都会在你设的延迟后自动还原
+
+## 命令行版本
+
+除了图形 app，仓库还提供一个功能相同的 CLI，适合脚本化或远程 SSH 使用。
+
+```sh
+make cli          # 编译出 displayarrange
+./displayarrange list                    # 查看当前布局
+./displayarrange save                    # 保存布局
+./displayarrange apply                   # 立即恢复
+./displayarrange watch --debounce 1000   # 后台监听解锁事件
+```
+
+CLI 和 app 共用同一份布局文件 `~/.config/displayarrange/layout.json`，保存的配置互通。
 
 ## 工作原理
 
-1. **枚举**：用 `CGGetOnlineDisplayList` 而不是 active list，睡着的显示器也能看到
+1. **枚举**：用 `CGGetOnlineDisplayList`（不是 active list），睡着的显示器也能看到
 2. **身份**：主键是 `CGDisplayUnitNumber`（物理端口稳定 ID），vendor/model/serial 做兜底
-3. **布局**：JSON 里存每台显示器的 unit、原点坐标、分辨率
+3. **布局**：JSON 存每台显示器的 unit、原点坐标、分辨率
 4. **应用**：走 `CGBeginDisplayConfiguration` + `CGConfigureDisplayOrigin` + `CGCompleteDisplayConfiguration`，和系统自己用的是同一套 API
-5. **监听**：订阅 `com.apple.screenIsUnlocked` 分布式通知，触发后先比对再决定要不要恢复
+5. **监听**：订阅 `com.apple.screenIsUnlocked` 分布式通知，按用户设置的延迟触发恢复
+
+核心逻辑在 [DisplayCore.c](DisplayCore.c)（纯 C，约 300 行），CLI 和 app 都只是它的薄壳。
 
 ## 和 jakehilborn/displayplacer 的区别
 
-| 维度 | displayplacer | displayarrange |
+| 维度 | displayplacer | DisplayArrange |
 |------|---------------|----------------|
 | 显示器识别 | `CGDirectDisplayID`（会漂移） | `CGDisplayUnitNumber`（端口级稳定） |
-| 自动恢复 | 无，需配合第三方工具 | 内置 `watch` 模式，原生监听解锁事件 |
-| 代码规模 | ~2000 行 | ~500 行单文件 |
-| 依赖 | 无 | 无 |
-| 适用场景 | 手动/脚本触发布局切换 | 锁屏后自动防复位 |
+| 自动恢复 | 无，需配合第三方工具 | 内置监听解锁事件，原生支持 |
+| 用户界面 | 纯命令行 | 菜单栏 app + CLI 双形态 |
+| 延迟配置 | 无 | 0–5 秒可调滑块 |
+| 代码规模 | ~2000 行 | 核心 ~300 行 + app ~350 行 |
 
-两者可以共存：displayplacer 适合做布局切换，displayarrange 适合防锁屏复位。
+两者可以共存：displayplacer 适合手动切换多套布局，DisplayArrange 适合锁屏后自动防复位。
 
 ## 常见问题
 
@@ -105,18 +96,27 @@ launchctl unload ~/Library/LaunchAgents/com.user.displayarrange.plist
 A: 在某些沙盒或远程会话里 IOKit service 访问受限，拿不到这些信息。不影响功能，因为主键用的是 display unit，不依赖这些字段。
 
 **Q: 换了显示器怎么办？**
-A: 在系统设置里摆好新布局，执行 `displayarrange save` 覆盖旧配置即可。
+A: 在系统设置里摆好新布局，点一次"保存当前布局"覆盖旧配置即可。
 
 **Q: 三台或更多显示器支持吗？**
-A: 支持，最多 32 台（`MAX_DISPLAYS` 常量）。
+A: 支持，最多 32 台（`DC_MAX_DISPLAYS` 常量）。
 
 **Q: 卸载？**
-A:
+A: 退出 app 后把 `DisplayArrange.app` 拖进废纸篓，再删掉配置目录：
 ```sh
-launchctl unload ~/Library/LaunchAgents/com.user.displayarrange.plist
-rm ~/Library/LaunchAgents/com.user.displayarrange.plist
-rm ~/bin/displayarrange
 rm -rf ~/.config/displayarrange
+rm -f ~/Library/LaunchAgents/com.displayarrange.app.plist
+```
+
+## 文件结构
+
+```
+DisplayCore.h / DisplayCore.c   显示器枚举、匹配、应用的核心引擎（纯 C）
+cli.c                           命令行界面
+DisplayArrangeApp.swift         菜单栏 app（AppKit，单文件）
+Info.plist                      app bundle 配置
+Makefile                        编译 CLI 和 app
+com.user.displayarrange.plist   CLI watch 模式的 LaunchAgent 模板
 ```
 
 ## License
@@ -127,7 +127,7 @@ MIT，见 [LICENSE](LICENSE)。
 
 ## English
 
-> A tiny macOS utility that remembers your multi-monitor layout and restores it automatically after every screen unlock.
+> A macOS menu-bar utility that remembers your multi-monitor layout and restores it automatically after every screen unlock.
 
 ### The problem
 
@@ -135,22 +135,42 @@ macOS often resets multi-monitor arrangements to the default side-by-side layout
 
 ### The fix
 
-`displayarrange` uses the **display unit** (a stable per-port identifier) instead of the ephemeral display ID, so it always knows which physical monitor goes where.
+DisplayArrange uses the **display unit** (a stable per-port identifier) instead of the ephemeral display ID, so it always knows which physical monitor goes where.
 
-### Build & use
+### Install
+
+Download `DisplayArrange.app.zip` from [Releases](../../releases), unzip, and drag to your Applications folder. Or build from source:
 
 ```sh
-cc -O2 -o displayarrange displayarrange.c \
-   -framework CoreGraphics -framework CoreFoundation -framework IOKit
-
-# Arrange monitors in System Settings, then:
-./displayarrange save
-
-# Auto-restore after every unlock:
-./displayarrange watch &
+git clone https://github.com/yourname/displayarrange.git
+cd displayarrange
+make app
+open DisplayArrange.app
 ```
 
-See the Chinese section above for the full command reference, LaunchAgent setup, and FAQ. The commands and config paths are identical.
+### Usage
+
+Click the dual-monitor icon in the menu bar:
+
+- **Save Current Layout** (`⌘S`) — snapshot the current arrangement
+- **Restore Now** (`⌘R`) — put it back immediately
+- **Auto-restore on unlock** — toggle automatic recovery
+- **Delay slider** — wait 0–5 s after unlock before restoring
+- **Launch at login** — start automatically
+
+### CLI
+
+A feature-identical command-line tool is also included:
+
+```sh
+make cli
+./displayarrange list
+./displayarrange save
+./displayarrange apply
+./displayarrange watch --debounce 1000
+```
+
+The CLI and the app share the same config file at `~/.config/displayarrange/layout.json`.
 
 ### License
 
