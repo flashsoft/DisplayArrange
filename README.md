@@ -25,13 +25,13 @@ DisplayArrange 用 **display unit**（绑定物理端口的稳定标识）而不
 需要 macOS 13+ 和 Xcode Command Line Tools。
 
 ```sh
-git clone https://github.com/你的用户名/displayarrange.git
-cd displayarrange
+git clone https://github.com/flashsoft/DisplayArrange.git
+cd DisplayArrange
 make app
-open DisplayArrange.app
+open dist/DisplayArrange.app
 ```
 
-编译产物是 `DisplayArrange.app`，可以拖到「应用程序」或任何位置。
+编译产物在 `dist/` 目录下（`dist/DisplayArrange.app` 和 `dist/displayarrange`），app 可以拖到「应用程序」或任何位置。
 
 ## 使用
 
@@ -59,11 +59,11 @@ open DisplayArrange.app
 除了图形 app，仓库还提供一个功能相同的 CLI，适合脚本化或远程 SSH 使用。
 
 ```sh
-make cli          # 编译出 displayarrange
-./displayarrange list                    # 查看当前布局
-./displayarrange save                    # 保存布局
-./displayarrange apply                   # 立即恢复
-./displayarrange watch --debounce 1000   # 后台监听解锁事件
+make cli                    # 编译出 dist/displayarrange
+./dist/displayarrange list                    # 查看当前布局
+./dist/displayarrange save                    # 保存布局
+./dist/displayarrange apply                   # 立即恢复
+./dist/displayarrange watch --debounce 1000   # 后台监听解锁事件
 ```
 
 CLI 和 app 共用同一份布局文件 `~/.config/displayarrange/layout.json`，保存的配置互通。
@@ -76,7 +76,7 @@ CLI 和 app 共用同一份布局文件 `~/.config/displayarrange/layout.json`�
 4. **应用**：走 `CGBeginDisplayConfiguration` + `CGConfigureDisplayOrigin` + `CGCompleteDisplayConfiguration`，和系统自己用的是同一套 API
 5. **监听**：订阅 `com.apple.screenIsUnlocked` 分布式通知，按用户设置的延迟触发恢复
 
-核心逻辑在 [DisplayCore.c](DisplayCore.c)（纯 C，约 300 行），CLI 和 app 都只是它的薄壳。
+核心逻辑在 [DisplayCore.c](core/DisplayCore.c)（纯 C，约 300 行），CLI 和 app 都只是它的薄壳。
 
 ## 和 jakehilborn/displayplacer 的区别
 
@@ -107,6 +107,26 @@ A: 退出 app 后把 `DisplayArrange.app` 拖进废纸篓，再删掉配置目�
 rm -rf ~/.config/displayarrange
 rm -f ~/Library/LaunchAgents/com.displayarrange.app.plist
 ```
+如果你还装过 CLI 的 watch 模式（见下节），一并卸载：
+```sh
+launchctl unload ~/Library/LaunchAgents/com.displayarrange.cli.plist 2>/dev/null
+rm -f ~/Library/LaunchAgents/com.displayarrange.cli.plist
+```
+
+## 用 launchd 常驻 CLI watch 模式（可选）
+
+如果你不想装 app、只想让 CLI 在后台监听解锁事件，可以用 `packaging/` 里的 LaunchAgent 模板：
+
+```sh
+make cli
+sudo make install          # 默认装到 /usr/local/bin/displayarrange
+
+# 按需编辑模板里的路径、参数和延迟，然后安装
+cp packaging/com.displayarrange.cli.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.displayarrange.cli.plist
+```
+
+模板默认监听 `~/.config/displayarrange/layout.json`，日志写在 `/tmp/displayarrange.log`。菜单栏 app 自带解锁监听，两者选一个用即可，不要同时跑。
 
 ## 文件结构
 
@@ -119,7 +139,7 @@ app/
   DisplayArrangeApp.swift       菜单栏 app（AppKit，单文件）
   Info.plist                    app bundle 配置
 packaging/
-  com.user.displayarrange.plist CLI watch 模式的 LaunchAgent 模板
+  com.displayarrange.cli.plist  CLI watch 模式的 LaunchAgent 模板
 Makefile                        一条命令同时编译 CLI 和 app
 ```
 
@@ -146,10 +166,10 @@ DisplayArrange uses the **display unit** (a stable per-port identifier) instead 
 Download `DisplayArrange.app.zip` from [Releases](../../releases), unzip, and drag to your Applications folder. Or build from source:
 
 ```sh
-git clone https://github.com/yourname/displayarrange.git
-cd displayarrange
+git clone https://github.com/flashsoft/DisplayArrange.git
+cd DisplayArrange
 make app
-open DisplayArrange.app
+open dist/DisplayArrange.app
 ```
 
 ### Usage
@@ -168,10 +188,10 @@ A feature-identical command-line tool is also included:
 
 ```sh
 make cli
-./displayarrange list
-./displayarrange save
-./displayarrange apply
-./displayarrange watch --debounce 1000
+./dist/displayarrange list
+./dist/displayarrange save
+./dist/displayarrange apply
+./dist/displayarrange watch --debounce 1000
 ```
 
 The CLI and the app share the same config file at `~/.config/displayarrange/layout.json`.

@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.user.displayarrange</string>
+    <string>com.displayarrange.cli</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/flashsoft/bin/displayarrange</string>
+        <string>/usr/local/bin/displayarrange</string>
         <string>watch</string>
         <string>--verbose</string>
     </array>

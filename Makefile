@@ -7,7 +7,8 @@ LDFLAGS   = -framework CoreGraphics -framework CoreFoundation -framework IOKit
 PREFIX   ?= /usr/local
 CLI_BIN  := displayarrange
 APP_NAME := DisplayArrange
-APP_DIR  := $(APP_NAME).app
+DIST_DIR := dist
+APP_DIR  := $(DIST_DIR)/$(APP_NAME).app
 
 CORE     := core/DisplayCore.c core/DisplayCore.h
 
@@ -16,9 +17,10 @@ CORE     := core/DisplayCore.c core/DisplayCore.h
 all: cli app
 
 # ---------------------------------------------------------------- CLI
-cli: $(CLI_BIN)
+cli: $(DIST_DIR)/$(CLI_BIN)
 
-$(CLI_BIN): cli/cli.c $(CORE)
+$(DIST_DIR)/$(CLI_BIN): cli/cli.c $(CORE)
+	@mkdir -p $(DIST_DIR)
 	$(CC) $(CFLAGS) -o $@ cli/cli.c core/DisplayCore.c $(LDFLAGS)
 
 # ---------------------------------------------------------------- App
@@ -40,13 +42,11 @@ $(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist
 
 # ---------------------------------------------------------------- Housekeeping
 clean:
-	rm -f $(CLI_BIN)
-	rm -rf $(CLI_BIN).dSYM
-	rm -rf $(APP_DIR)
+	rm -rf $(DIST_DIR)
 
 install: cli
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp $(CLI_BIN) $(DESTDIR)$(PREFIX)/bin/
+	cp $(DIST_DIR)/$(CLI_BIN) $(DESTDIR)$(PREFIX)/bin/
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(CLI_BIN)

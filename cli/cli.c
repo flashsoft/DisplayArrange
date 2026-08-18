@@ -155,6 +155,8 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "apply") == 0) return cmd_apply(path, 0, verbose);
     if (strcmp(cmd, "apply-if-different") == 0) return cmd_apply(path, 1, verbose);
     if (strcmp(cmd, "watch") == 0) return cmd_watch(path, debounce, verbose);
+    if (strcmp(cmd, "help") == 0 || strcmp(cmd, "--help") == 0 ||
+        strcmp(cmd, "-h") == 0) { usage(argv[0]); return 0; }
 
     usage(argv[0]);
     return 1;

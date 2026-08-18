@@ -1,8 +1,3 @@
-# Build artifacts
-displayarrange
-*.o
-*.dSYM/
-
 # OS junk
 .DS_Store
 
@@ -14,4 +9,6 @@ displayarrange
 *~
 
 # Build artifacts
-DisplayArrange.app/
+dist/
+*.o
+*.dSYM/
