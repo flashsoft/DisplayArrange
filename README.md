@@ -2,6 +2,8 @@
 
 > macOS 菜单栏小工具：锁屏/睡眠后自动恢复双屏排列，不再每次手动拖。
 
+**平台要求：macOS 13+，Apple Silicon 和 Intel 均支持（universal binary）。**
+
 [English](#english) | 中文
 
 ---
@@ -16,7 +18,7 @@ DisplayArrange 用 **display unit**（绑定物理端口的稳定标识）而不
 
 ### 方式一：下载 App（推荐）
 
-从 [Releases](../../releases) 下载 `DisplayArrange.app.zip`，解压后拖进「应用程序」文件夹即可。
+从 [Releases](https://github.com/flashsoft/DisplayArrange/releases) 下载 `DisplayArrange.app.zip`，解压后拖进「应用程序」文件夹即可。只要命令行的话可以下 `DisplayArrange-macos-universal.zip`。
 
 首次打开如果提示"未受信任的开发者"，在 系统设置 → 隐私与安全性 里点"仍要打开"。
 
@@ -163,7 +165,9 @@ DisplayArrange uses the **display unit** (a stable per-port identifier) instead 
 
 ### Install
 
-Download `DisplayArrange.app.zip` from [Releases](../../releases), unzip, and drag to your Applications folder. Or build from source:
+**Requires macOS 13+. Universal binary — runs natively on both Apple Silicon and Intel Macs.**
+
+Download `DisplayArrange.app.zip` from [Releases](https://github.com/flashsoft/DisplayArrange/releases), unzip, and drag to your Applications folder. CLI-only: grab `DisplayArrange-macos-universal.zip`. Or build from source:
 
 ```sh
 git clone https://github.com/flashsoft/DisplayArrange.git
