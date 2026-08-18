@@ -111,12 +111,16 @@ rm -f ~/Library/LaunchAgents/com.displayarrange.app.plist
 ## 文件结构
 
 ```
-DisplayCore.h / DisplayCore.c   显示器枚举、匹配、应用的核心引擎（纯 C）
-cli.c                           命令行界面
-DisplayArrangeApp.swift         菜单栏 app（AppKit，单文件）
-Info.plist                      app bundle 配置
-Makefile                        编译 CLI 和 app
-com.user.displayarrange.plist   CLI watch 模式的 LaunchAgent 模板
+core/
+  DisplayCore.h / .c            显示器枚举、匹配、应用的核心引擎（纯 C）
+cli/
+  cli.c                         命令行界面
+app/
+  DisplayArrangeApp.swift       菜单栏 app（AppKit，单文件）
+  Info.plist                    app bundle 配置
+packaging/
+  com.user.displayarrange.plist CLI watch 模式的 LaunchAgent 模板
+Makefile                        一条命令同时编译 CLI 和 app
 ```
 
 ## License

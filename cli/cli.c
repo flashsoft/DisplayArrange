@@ -11,7 +11,7 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 
-#include "DisplayCore.h"
+#include "../core/DisplayCore.h"
 
 static int cmd_list(void) {
     DCDisplayList list;
