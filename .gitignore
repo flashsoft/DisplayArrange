@@ -1,0 +1,14 @@
+# Build artifacts
+displayarrange
+*.o
+*.dSYM/
+
+# OS junk
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
