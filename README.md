@@ -42,9 +42,12 @@ open dist/DisplayArrange.app
 | 功能 | 说明 |
 |------|------|
 | **状态栏** | 显示当前连接了几台显示器、是否已保存布局 |
-| **保存当前布局** | 把现在的排列记下来（快捷键 `⌘S`） |
-| **立即恢复布局** | 马上摆回保存的位置（快捷键 `⌘R`） |
+| **保存当前布局** | 把现在的排列记下来（全局快捷键 `⌃⌘S`） |
+| **立即恢复布局** | 马上摆回保存的位置（全局快捷键 `⌃⌘R`） |
+| **立即黑屏** | 一键让所有屏幕变黑（类屏幕保护效果，显示器不掉线、不触发重新握手），按任意键或点击鼠标恢复（全局快捷键 `⌃⌘B`） |
 | **解锁后自动恢复** | 开关。打开后每次解锁都会自动摆正 |
+| **禁止休眠** | 开关。打开后 Mac 不会因空闲进入睡眠（合盖和手动「睡眠」不受影响） |
+| **禁止屏幕熄灭** | 开关。打开后屏幕不会因空闲变暗熄灭，与「禁止休眠」相互独立 |
 | **延迟滑块** | 解锁后等 0–5 秒再恢复，给显示器重新握手留时间 |
 | **开机自动启动** | 登录后自动运行，不用手动开 |
 | **退出** | 完全退出 |
@@ -58,7 +61,7 @@ open dist/DisplayArrange.app
 
 ## 命令行版本
 
-除了图形 app，仓库还提供一个功能相同的 CLI，适合脚本化或远程 SSH 使用。
+除了图形 app，仓库还提供一个 CLI，覆盖布局的查看/保存/恢复/解锁监听（「禁止休眠」为 app 专属开关），适合脚本化或远程 SSH 使用。
 
 ```sh
 make cli                    # 编译出 dist/displayarrange
@@ -142,6 +145,8 @@ app/
   Info.plist                    app bundle 配置
 packaging/
   com.displayarrange.cli.plist  CLI watch 模式的 LaunchAgent 模板
+tests/
+  characterization.c            DisplayCore 纯函数的行为表征测试（make test）
 Makefile                        一条命令同时编译 CLI 和 app
 ```
 
@@ -180,15 +185,18 @@ open dist/DisplayArrange.app
 
 Click the dual-monitor icon in the menu bar:
 
-- **Save Current Layout** (`⌘S`) — snapshot the current arrangement
-- **Restore Now** (`⌘R`) — put it back immediately
+- **Save Current Layout**  (global hotkey `⌃⌘S`) — snapshot the current arrangement
+- **Restore Now**  (global hotkey `⌃⌘R`) — put it back immediately
+- **Blank Screen**  (global hotkey `⌃⌘B`) — turn every screen black, screensaver-style, without putting the displays to sleep (no re-handshake); any key or mouse button brings them back
 - **Auto-restore on unlock** — toggle automatic recovery
+- **Prevent sleep** — keep the Mac from idle sleep (lid-close and manual sleep still work)
+- **Prevent display sleep** — keep the screen from dimming off on idle; independent of the sleep toggle
 - **Delay slider** — wait 0–5 s after unlock before restoring
 - **Launch at login** — start automatically
 
 ### CLI
 
-A feature-identical command-line tool is also included:
+A command-line tool covering layout list/save/restore/unlock-watch is also included (the sleep toggles are app-only):
 
 ```sh
 make cli

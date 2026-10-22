@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import Carbon.HIToolbox
 import ServiceManagement
 import UserNotifications
 
@@ -31,6 +32,18 @@ func dc_layouts_equal(_ a: UnsafePointer<DCDisplayList>,
 func dc_apply(_ saved: UnsafePointer<DCDisplayList>,
               _ verbose: Int32) -> Int32
 
+@_silgen_name("dc_restore")
+func dc_restore(_ path: UnsafePointer<CChar>?,
+                _ onlyIfDifferent: Int32,
+                _ verbose: Int32,
+                _ preApplyMsg: UnsafePointer<CChar>?) -> Int32
+
+@_silgen_name("dc_set_prevent_sleep")
+func dc_set_prevent_sleep(_ enable: Int32) -> Int32
+
+@_silgen_name("dc_set_prevent_display_sleep")
+func dc_set_prevent_display_sleep(_ enable: Int32) -> Int32
+
 // MARK: - Settings
 
 final class Settings: ObservableObject {
@@ -48,6 +61,19 @@ final class Settings: ObservableObject {
             LaunchAgentHelper.setEnabled(launchAtLogin)
         }
     }
+    @Published var preventSleep: Bool {
+        didSet {
+            UserDefaults.standard.set(preventSleep, forKey: "preventSleep")
+            _ = dc_set_prevent_sleep(preventSleep ? 1 : 0)
+        }
+    }
+    @Published var preventDisplaySleep: Bool {
+        didSet {
+            UserDefaults.standard.set(preventDisplaySleep,
+                                      forKey: "preventDisplaySleep")
+            _ = dc_set_prevent_display_sleep(preventDisplaySleep ? 1 : 0)
+        }
+    }
     @Published var lastStatus: String = "就绪"
 
     private init() {
@@ -55,6 +81,9 @@ final class Settings: ObservableObject {
         self.autoRestore   = d.object(forKey: "autoRestore") as? Bool ?? true
         self.delaySeconds  = d.object(forKey: "delaySeconds") as? Double ?? 0.8
         self.launchAtLogin = d.object(forKey: "launchAtLogin") as? Bool ?? false
+        self.preventSleep  = d.object(forKey: "preventSleep") as? Bool ?? false
+        self.preventDisplaySleep =
+            d.object(forKey: "preventDisplaySleep") as? Bool ?? false
     }
 }
 
@@ -105,12 +134,8 @@ enum CoreAction {
     }
 
     static func restoreLayout(verbose: Bool = false) -> Bool {
-        var saved = DCDisplayList()
-        var current = DCDisplayList()
-        guard dc_load_file(&saved, nil) != 0,
-              dc_collect(&current) != 0 else { return false }
-        guard dc_layouts_equal(&saved, &current) == 0 else { return true }
-        return dc_apply(&saved, verbose ? 1 : 0) == 0
+        let r = dc_restore(nil, 1, verbose ? 1 : 0, nil)
+        return r == DC_RESTORE_OK || r == DC_RESTORE_ALREADY
     }
 
     static func displayCount() -> Int {
@@ -132,10 +157,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menu: NSMenu!
 
     private var toggleItem: NSMenuItem!
+    private var sleepItem: NSMenuItem!
+    private var displaySleepItem: NSMenuItem!
     private var delaySlider: NSSlider!
     private var delayLabel: NSTextField!
     private var loginItem: NSMenuItem!
     private var statusTextItem: NSMenuItem!
+
+    // Blank-screen ("screensaver") state: one black borderless window
+    // per screen, dismissed by any key or mouse button.
+    private var blankWindows: [NSWindow] = []
+    private var blankMonitors: [Any] = []
+
+    // Global hotkey registrations (Carbon RegisterEventHotKey).
+    private var hotKeyRefs: [EventHotKeyRef?] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -146,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         buildMenu()
         statusItem.menu = menu
+        registerHotKeys()
 
         // First launch: capture a baseline layout so the user has
         // something to restore even before pressing "save".
@@ -153,6 +189,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if CoreAction.saveLayout() {
                 Settings.shared.lastStatus = "已自动保存当前布局"
             }
+        }
+
+        // Re-arm the sleep-prevention assertions if the toggles were on
+        // (assertions do not survive process restarts).
+        if Settings.shared.preventSleep {
+            _ = dc_set_prevent_sleep(1)
+        }
+        if Settings.shared.preventDisplaySleep {
+            _ = dc_set_prevent_display_sleep(1)
         }
 
         // Listen for unlock events.
@@ -163,6 +208,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil)
 
         refreshUI()
+    }
+
+    // Register ⌃⌘S / ⌃⌘R / ⌃⌘B as true global hotkeys. Menu
+    // keyEquivalents only fire while the menu is open, so Carbon's
+    // RegisterEventHotKey (no accessibility permission required) is
+    // used to catch them system-wide. All three actions are idempotent,
+    // so a press while the menu is open firing both paths is harmless.
+    private func registerHotKeys() {
+        var spec = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(
+            GetApplicationEventTarget(), { _, event, userData in
+                guard let event, let userData else { return noErr }
+                var hotKeyID = EventHotKeyID()
+                GetEventParameter(event, UInt32(kEventParamDirectObject),
+                                  UInt32(typeEventHotKeyID), nil,
+                                  MemoryLayout<EventHotKeyID>.size, nil,
+                                  &hotKeyID)
+                let delegate = Unmanaged<AppDelegate>.fromOpaque(userData)
+                    .takeUnretainedValue()
+                delegate.handleHotKey(id: hotKeyID.id)
+                return noErr
+            }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), nil)
+
+        let combos: [(key: UInt32, id: UInt32)] = [
+            (UInt32(kVK_ANSI_S), 1),
+            (UInt32(kVK_ANSI_R), 2),
+            (UInt32(kVK_ANSI_B), 3),
+        ]
+        for combo in combos {
+            var ref: EventHotKeyRef?
+            let hotKeyID = EventHotKeyID(signature: OSType(0x4441_5252),
+                                         id: combo.id)  // 'DARR'
+            RegisterEventHotKey(combo.key, UInt32(cmdKey | controlKey),
+                                hotKeyID, GetApplicationEventTarget(), 0,
+                                &ref)
+            hotKeyRefs.append(ref)
+        }
+    }
+
+    func handleHotKey(id: UInt32) {
+        switch id {
+        case 1: onSave()
+        case 2: onRestore()
+        case 3: onBlankScreen()
+        default: break
+        }
     }
 
     private func updateIcon() {
@@ -184,18 +277,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusTextItem)
         menu.addItem(.separator())
 
-        // Save / restore
+        // Save / restore (shortcuts are all Control-Command to avoid
+        // colliding with the front app's plain Command shortcuts)
         let save = NSMenuItem(title: "保存当前布局",
                               action: #selector(onSave),
                               keyEquivalent: "s")
+        save.keyEquivalentModifierMask = [.command, .control]
         save.target = self
         menu.addItem(save)
 
         let restore = NSMenuItem(title: "立即恢复布局",
                                  action: #selector(onRestore),
                                  keyEquivalent: "r")
+        restore.keyEquivalentModifierMask = [.command, .control]
         restore.target = self
         menu.addItem(restore)
+
+        let blank = NSMenuItem(title: "立即黑屏",
+                               action: #selector(onBlankScreen),
+                               keyEquivalent: "b")
+        blank.keyEquivalentModifierMask = [.command, .control]
+        blank.target = self
+        menu.addItem(blank)
         menu.addItem(.separator())
 
         // Auto-restore toggle
@@ -204,6 +307,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(toggleItem)
+
+        // Prevent-sleep toggle
+        sleepItem = NSMenuItem(title: "禁止休眠",
+                               action: #selector(onToggleSleep),
+                               keyEquivalent: "")
+        sleepItem.target = self
+        menu.addItem(sleepItem)
+
+        // Prevent-display-sleep toggle
+        displaySleepItem = NSMenuItem(title: "禁止屏幕熄灭",
+                                      action: #selector(onToggleDisplaySleep),
+                                      keyEquivalent: "")
+        displaySleepItem.target = self
+        menu.addItem(displaySleepItem)
 
         // Delay slider
         let delayItem = NSMenuItem()
@@ -238,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let quit = NSMenuItem(title: "退出 DisplayArrange",
                               action: #selector(onQuit),
                               keyEquivalent: "q")
+        quit.keyEquivalentModifierMask = [.command, .control]
         quit.target = self
         menu.addItem(quit)
     }
@@ -245,6 +363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshUI() {
         let s = Settings.shared
         toggleItem.state = s.autoRestore ? .on : .off
+        sleepItem.state  = s.preventSleep ? .on : .off
+        displaySleepItem.state = s.preventDisplaySleep ? .on : .off
         loginItem.state  = s.launchAtLogin ? .on : .off
         delaySlider.doubleValue = s.delaySeconds
         delayLabel.stringValue = String(
@@ -280,8 +400,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshUI()
     }
 
+    @objc private func onBlankScreen() {
+        guard blankWindows.isEmpty else { return }
+        for screen in NSScreen.screens {
+            let w = NSWindow(contentRect: screen.frame,
+                             styleMask: .borderless,
+                             backing: .buffered,
+                             defer: false)
+            w.isReleasedWhenClosed = false  // ARC owns these windows
+            w.level = .screenSaver
+            w.backgroundColor = .black
+            w.isOpaque = true
+            w.collectionBehavior = [.canJoinAllSpaces, .stationary]
+            w.orderFrontRegardless()
+            blankWindows.append(w)
+        }
+        setCursorHidden(true)
+
+        let mask: NSEvent.EventTypeMask =
+            [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        // Defer the teardown to the next runloop turn: removing a monitor
+        // from inside its own handler risks use-after-free mid-dispatch.
+        if let m = NSEvent.addLocalMonitorForEvents(matching: mask,
+                                                    handler: { [weak self] _ in
+            DispatchQueue.main.async { self?.dismissBlankScreen() }
+            return nil
+        }) { blankMonitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: mask,
+                                                     handler: { [weak self] _ in
+            DispatchQueue.main.async { self?.dismissBlankScreen() }
+        }) { blankMonitors.append(m) }
+    }
+
+    private func dismissBlankScreen() {
+        guard !blankWindows.isEmpty else { return }
+        for m in blankMonitors { NSEvent.removeMonitor(m) }
+        blankMonitors.removeAll()
+        for w in blankWindows {
+            w.orderOut(nil)
+            w.close()
+        }
+        blankWindows.removeAll()
+        setCursorHidden(false)
+    }
+
+    // Display-wide cursor hide/show: works regardless of which app is
+    // active, unlike NSCursor.hide() which only applies to our windows.
+    private func setCursorHidden(_ hidden: Bool) {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 32)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(32, &ids, &count) == .success else {
+            return
+        }
+        for i in 0..<Int(count) {
+            if hidden {
+                CGDisplayHideCursor(ids[i])
+            } else {
+                CGDisplayShowCursor(ids[i])
+            }
+        }
+    }
+
     @objc private func onToggleAuto() {
         Settings.shared.autoRestore.toggle()
+        refreshUI()
+    }
+
+    @objc private func onToggleSleep() {
+        Settings.shared.preventSleep.toggle()
+        refreshUI()
+    }
+
+    @objc private func onToggleDisplaySleep() {
+        Settings.shared.preventDisplaySleep.toggle()
         refreshUI()
     }
 

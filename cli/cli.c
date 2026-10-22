@@ -46,21 +46,21 @@ static int cmd_save(const char *path) {
 }
 
 static int cmd_apply(const char *path, int only_if_different, int verbose) {
-    DCDisplayList saved, current;
-    if (!dc_load_file(&saved, path)) {
+    int r = dc_restore(path, only_if_different, verbose, NULL);
+    if (r == DC_RESTORE_NO_FILE) {
         fprintf(stderr, "displayarrange: cannot load saved layout\n");
         return 1;
     }
-    if (!dc_collect(&current)) {
+    if (r == DC_RESTORE_NO_DISPLAYS) {
         fprintf(stderr, "displayarrange: no displays found\n");
         return 1;
     }
-    if (only_if_different && dc_layouts_equal(&saved, &current)) {
+    if (r == DC_RESTORE_ALREADY) {
         if (verbose)
             fprintf(stderr, "displayarrange: layout unchanged, skipping\n");
         return 0;
     }
-    return dc_apply(&saved, verbose);
+    return r == DC_RESTORE_OK ? 0 : 1;
 }
 
 /* ---- watch mode -------------------------------------------------- */
@@ -78,16 +78,10 @@ static void on_unlock(CFNotificationCenterRef center, void *observer,
                 g_debounce_ms);
     usleep((useconds_t)g_debounce_ms * 1000);
 
-    DCDisplayList saved, current;
-    if (!dc_load_file(&saved, g_path)) return;
-    if (!dc_collect(&current)) return;
-    if (dc_layouts_equal(&saved, &current)) {
-        if (g_verbose)
-            fprintf(stderr, "displayarrange: layout already correct\n");
-        return;
-    }
-    fprintf(stderr, "displayarrange: layout drifted, restoring...\n");
-    dc_apply(&saved, g_verbose);
+    int r = dc_restore(g_path, 1, g_verbose,
+                       "displayarrange: layout drifted, restoring...\n");
+    if (r == DC_RESTORE_ALREADY && g_verbose)
+        fprintf(stderr, "displayarrange: layout already correct\n");
 }
 
 static int cmd_watch(const char *path, int debounce_ms, int verbose) {

@@ -13,6 +13,7 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/graphics/IOGraphicsLib.h>
+#include <IOKit/pwr_mgt/IOPMLib.h>
 
 /* ------------------------------------------------------------------ */
 /* CF helpers                                                          */
@@ -337,4 +338,60 @@ int dc_apply(const DCDisplayList *saved, int verbose) {
     if (verbose && !any)
         fprintf(stderr, "displayarrange: layout already matches\n");
     return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Restore orchestration                                              */
+/* ------------------------------------------------------------------ */
+int dc_restore(const char *path, int only_if_different, int verbose,
+               const char *pre_apply_msg) {
+    DCDisplayList saved, current;
+    if (!dc_load_file(&saved, path))
+        return DC_RESTORE_NO_FILE;
+    if (!dc_collect(&current))
+        return DC_RESTORE_NO_DISPLAYS;
+    if (only_if_different && dc_layouts_equal(&saved, &current))
+        return DC_RESTORE_ALREADY;
+    if (pre_apply_msg)
+        fputs(pre_apply_msg, stderr);
+    return dc_apply(&saved, verbose) == 0
+               ? DC_RESTORE_OK : DC_RESTORE_APPLY_FAILED;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sleep prevention                                                   */
+/* ------------------------------------------------------------------ */
+static IOPMAssertionID g_sleep_assertion = 0;
+static IOPMAssertionID g_display_assertion = 0;
+
+static int set_assertion(CFStringRef type, CFStringRef name,
+                         IOPMAssertionID *slot, int enable) {
+    if (enable) {
+        if (*slot)
+            return 1;
+        IOReturn rc = IOPMAssertionCreateWithName(
+            type, kIOPMAssertionLevelOn, name, slot);
+        if (rc != kIOReturnSuccess) {
+            *slot = 0;
+            return 0;
+        }
+        return 1;
+    }
+    if (*slot) {
+        IOPMAssertionRelease(*slot);
+        *slot = 0;
+    }
+    return 1;
+}
+
+int dc_set_prevent_sleep(int enable) {
+    return set_assertion(kIOPMAssertionTypePreventUserIdleSystemSleep,
+                         CFSTR("DisplayArrange prevent sleep"),
+                         &g_sleep_assertion, enable);
+}
+
+int dc_set_prevent_display_sleep(int enable) {
+    return set_assertion(kIOPMAssertionTypePreventUserIdleDisplaySleep,
+                         CFSTR("DisplayArrange prevent display sleep"),
+                         &g_display_assertion, enable);
 }
