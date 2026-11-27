@@ -41,8 +41,17 @@ func dc_restore(_ path: UnsafePointer<CChar>?,
 @_silgen_name("dc_set_prevent_sleep")
 func dc_set_prevent_sleep(_ enable: Int32) -> Int32
 
-@_silgen_name("dc_set_prevent_display_sleep")
-func dc_set_prevent_display_sleep(_ enable: Int32) -> Int32
+@_silgen_name("dc_sleep_disabled")
+func dc_sleep_disabled() -> Int32
+
+@_silgen_name("dc_set_sleep_disabled")
+func dc_set_sleep_disabled(_ disable: Int32) -> Int32
+
+@_silgen_name("dc_sleep_sudo_ready")
+func dc_sleep_sudo_ready() -> Int32
+
+@_silgen_name("dc_sleep_setup_sudoers")
+func dc_sleep_setup_sudoers() -> Int32
 
 // MARK: - Settings
 
@@ -67,13 +76,8 @@ final class Settings: ObservableObject {
             _ = dc_set_prevent_sleep(preventSleep ? 1 : 0)
         }
     }
-    @Published var preventDisplaySleep: Bool {
-        didSet {
-            UserDefaults.standard.set(preventDisplaySleep,
-                                      forKey: "preventDisplaySleep")
-            _ = dc_set_prevent_display_sleep(preventDisplaySleep ? 1 : 0)
-        }
-    }
+    // Only mutated on the main thread (launch alignment, toggle action).
+    @Published var blockSystemSleep: Bool = false
     @Published var lastStatus: String = "就绪"
 
     private init() {
@@ -82,8 +86,6 @@ final class Settings: ObservableObject {
         self.delaySeconds  = d.object(forKey: "delaySeconds") as? Double ?? 0.8
         self.launchAtLogin = d.object(forKey: "launchAtLogin") as? Bool ?? false
         self.preventSleep  = d.object(forKey: "preventSleep") as? Bool ?? false
-        self.preventDisplaySleep =
-            d.object(forKey: "preventDisplaySleep") as? Bool ?? false
     }
 }
 
@@ -158,7 +160,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var toggleItem: NSMenuItem!
     private var sleepItem: NSMenuItem!
-    private var displaySleepItem: NSMenuItem!
     private var delaySlider: NSSlider!
     private var delayLabel: NSTextField!
     private var loginItem: NSMenuItem!
@@ -191,14 +192,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Re-arm the sleep-prevention assertions if the toggles were on
+        // Re-arm the sleep-prevention assertion if the toggle was on
         // (assertions do not survive process restarts).
         if Settings.shared.preventSleep {
             _ = dc_set_prevent_sleep(1)
         }
-        if Settings.shared.preventDisplaySleep {
-            _ = dc_set_prevent_display_sleep(1)
-        }
+
+        // The sleep toggle drives the system-wide pmset disablesleep
+        // switch, which survives process restarts: align the toggle
+        // with the real state instead of re-applying anything.
+        Settings.shared.blockSystemSleep = (dc_sleep_disabled() == 1)
 
         // Listen for unlock events.
         DistributedNotificationCenter.default().addObserver(
@@ -301,28 +304,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(blank)
         menu.addItem(.separator())
 
-        // Auto-restore toggle
+        // Auto-restore group: toggle + delay slider belong together
         toggleItem = NSMenuItem(title: "解锁后自动恢复",
                                 action: #selector(onToggleAuto),
                                 keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(toggleItem)
 
-        // Prevent-sleep toggle
-        sleepItem = NSMenuItem(title: "禁止休眠",
-                               action: #selector(onToggleSleep),
-                               keyEquivalent: "")
-        sleepItem.target = self
-        menu.addItem(sleepItem)
-
-        // Prevent-display-sleep toggle
-        displaySleepItem = NSMenuItem(title: "禁止屏幕熄灭",
-                                      action: #selector(onToggleDisplaySleep),
-                                      keyEquivalent: "")
-        displaySleepItem.target = self
-        menu.addItem(displaySleepItem)
-
-        // Delay slider
         let delayItem = NSMenuItem()
         let delayView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 44))
 
@@ -341,6 +329,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         delayItem.view = delayView
         menu.addItem(delayItem)
+        menu.addItem(.separator())
+
+        // System sleep toggle (separate group: system-level setting)
+        sleepItem = NSMenuItem(title: "禁止休眠",
+                               action: #selector(onToggleSleep),
+                               keyEquivalent: "")
+        sleepItem.target = self
+        menu.addItem(sleepItem)
         menu.addItem(.separator())
 
         // Launch at login
@@ -363,8 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshUI() {
         let s = Settings.shared
         toggleItem.state = s.autoRestore ? .on : .off
-        sleepItem.state  = s.preventSleep ? .on : .off
-        displaySleepItem.state = s.preventDisplaySleep ? .on : .off
+        sleepItem.state  = s.blockSystemSleep ? .on : .off
         loginItem.state  = s.launchAtLogin ? .on : .off
         delaySlider.doubleValue = s.delaySeconds
         delayLabel.stringValue = String(
@@ -467,13 +462,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func onToggleSleep() {
-        Settings.shared.preventSleep.toggle()
-        refreshUI()
+        let s = Settings.shared
+        let target = !s.blockSystemSleep
+
+        // First time enabling: offer one-time passwordless setup so
+        // future toggles (and quit-restore) never ask for a password.
+        if target && dc_sleep_sudo_ready() == 0 {
+            let alert = NSAlert()
+            alert.messageText = "开启免密控制？"
+            alert.informativeText =
+                "首次开启需要管理员授权来配置系统，之后切换「禁止休眠」" +
+                "将不再需要输入密码。"
+            alert.addButton(withTitle: "配置并开启")
+            alert.addButton(withTitle: "仅本次开启")
+            alert.addButton(withTitle: "取消")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                s.lastStatus = "正在配置免密…"
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let ok = dc_sleep_setup_sudoers() != 0
+                    DispatchQueue.main.async {
+                        if ok {
+                            self.applySleepDisabled(true)
+                        } else {
+                            s.lastStatus = "配置失败，本次仍需密码"
+                            self.applySleepDisabled(true)
+                        }
+                    }
+                }
+                return
+            case .alertSecondButtonReturn:
+                break   // fall through to one-shot password path
+            default:
+                return  // cancel
+            }
+        }
+        applySleepDisabled(target)
     }
 
-    @objc private func onToggleDisplaySleep() {
-        Settings.shared.preventDisplaySleep.toggle()
-        refreshUI()
+    private func applySleepDisabled(_ target: Bool) {
+        let s = Settings.shared
+        s.lastStatus = target ? "正在禁用系统睡眠…" : "正在恢复系统睡眠…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ok = dc_set_sleep_disabled(target ? 1 : 0) != 0
+            DispatchQueue.main.async {
+                if ok {
+                    s.blockSystemSleep = target
+                    s.lastStatus = target ? "系统睡眠已禁用" : "系统睡眠已恢复"
+                } else {
+                    s.lastStatus = "操作未完成（授权已取消或失败）"
+                }
+                self.refreshUI()
+            }
+        }
     }
 
     @objc private func onToggleLogin() {
@@ -490,6 +531,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func onQuit() {
         NSApp.terminate(nil)
+    }
+
+    // Restore system sleep on the way out if this app disabled it.
+    // Restoring needs root, so this shows the admin authorization
+    // dialog once; cancelling it leaves the setting untouched and
+    // still lets the app quit.
+    func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        guard dc_sleep_disabled() == 1 else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.messageText = "退出前恢复系统睡眠？"
+        alert.informativeText =
+            "「禁止休眠」当前已开启。退出 DisplayArrange 将恢复系统睡眠" +
+            "（需要一次管理员授权）。"
+        alert.addButton(withTitle: "恢复并退出")
+        alert.addButton(withTitle: "保持禁用并退出")
+        alert.addButton(withTitle: "取消")
+        let resp = alert.runModal()
+
+        switch resp {
+        case .alertFirstButtonReturn:
+            DispatchQueue.global(qos: .userInitiated).async {
+                let ok = dc_set_sleep_disabled(0) != 0
+                DispatchQueue.main.async {
+                    if !ok {
+                        Settings.shared.lastStatus =
+                            "恢复失败（授权已取消），保持禁用"
+                    }
+                    // Quit regardless; a cancelled restore must not
+                    // trap the user in the app.
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                }
+            }
+            return .terminateLater
+        case .alertSecondButtonReturn:
+            return .terminateNow   // keep disabled, quit now
+        default:
+            return .terminateCancel
+        }
     }
 
     @objc private func onUnlock() {

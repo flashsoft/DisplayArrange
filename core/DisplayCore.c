@@ -9,6 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -362,7 +363,6 @@ int dc_restore(const char *path, int only_if_different, int verbose,
 /* Sleep prevention                                                   */
 /* ------------------------------------------------------------------ */
 static IOPMAssertionID g_sleep_assertion = 0;
-static IOPMAssertionID g_display_assertion = 0;
 
 static int set_assertion(CFStringRef type, CFStringRef name,
                          IOPMAssertionID *slot, int enable) {
@@ -385,13 +385,134 @@ static int set_assertion(CFStringRef type, CFStringRef name,
 }
 
 int dc_set_prevent_sleep(int enable) {
-    return set_assertion(kIOPMAssertionTypePreventUserIdleSystemSleep,
+    /* PreventSystemSleep is the strong form: while held, the system
+       cannot sleep at all and the Apple-menu "Sleep" item is greyed
+       out (same assertion `caffeinate -s` takes). Lid-close sleep is
+       unaffected. Requires macOS 10.15+. */
+    return set_assertion(kIOPMAssertionTypePreventSystemSleep,
                          CFSTR("DisplayArrange prevent sleep"),
                          &g_sleep_assertion, enable);
 }
 
-int dc_set_prevent_display_sleep(int enable) {
-    return set_assertion(kIOPMAssertionTypePreventUserIdleDisplaySleep,
-                         CFSTR("DisplayArrange prevent display sleep"),
-                         &g_display_assertion, enable);
+/* ------------------------------------------------------------------ */
+/* System sleep disable (pmset disablesleep)                          */
+/* ------------------------------------------------------------------ */
+#define PM_PLIST "/Library/Preferences/com.apple.PowerManagement.plist"
+
+int dc_sleep_disabled(void) {
+    /* The plist is world-readable: reading it avoids spawning pmset
+       on every menu refresh. */
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(
+        NULL, (const UInt8 *)PM_PLIST, strlen(PM_PLIST), false);
+    if (!url) return -1;
+    CFDataRef data = NULL;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    Boolean ok = CFURLCreateDataAndPropertiesFromResource(
+        NULL, url, &data, NULL, NULL, NULL);
+#pragma clang diagnostic pop
+    if (!ok || !data) {
+        CFRelease(url);
+        return -1;
+    }
+    CFPropertyListRef root =
+        CFPropertyListCreateWithData(NULL, data, kCFPropertyListImmutable,
+                                     NULL, NULL);
+    CFRelease(data);
+    CFRelease(url);
+    if (!root) return -1;
+
+    int r = -1;
+    if (CFGetTypeID(root) == CFDictionaryGetTypeID()) {
+        CFTypeRef sys = CFDictionaryGetValue((CFDictionaryRef)root,
+                                             CFSTR("SystemPowerSettings"));
+        if (sys && CFGetTypeID(sys) == CFDictionaryGetTypeID()) {
+            CFTypeRef v = CFDictionaryGetValue((CFDictionaryRef)sys,
+                                               CFSTR("SleepDisabled"));
+            if (v && CFGetTypeID(v) == CFBooleanGetTypeID())
+                r = CFBooleanGetValue((CFBooleanRef)v) ? 1 : 0;
+        }
+    }
+    CFRelease(root);
+    return r;
+}
+
+int dc_sleep_disabled_writable(void) {
+    /* Direct plist writes are unreliable: powerd keeps its own copy in
+       memory and rewrites the file on restart, clobbering manual edits.
+       Only `pmset` (via root) updates powerd's state correctly. */
+    return 0;
+}
+
+/* Run a command, return 1 if it exits 0. */
+static int run_quiet(const char *path, char *const argv[]) {
+    pid_t pid = fork();
+    if (pid < 0) return 0;
+    if (pid == 0) {
+        freopen("/dev/null", "w", stdout);
+        freopen("/dev/null", "w", stderr);
+        execv(path, argv);
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {}
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+/* Is passwordless sudo for our exact pmset commands already set up?
+   `sudo -n` fails (non-zero) if a password would be required. */
+int dc_sleep_sudo_ready(void) {
+    char *argv0[] = {"/usr/bin/sudo", "-n", "/usr/bin/pmset",
+                     "-b", "disablesleep", "0", NULL};
+    char *argv1[] = {"/usr/bin/sudo", "-n", "/usr/bin/pmset",
+                     "-b", "disablesleep", "1", NULL};
+    /* Both must succeed; a rule allowing only one direction is useless. */
+    return run_quiet(argv0[0], argv0) && run_quiet(argv1[0], argv1);
+}
+
+/* One-time setup: write /etc/sudoers.d/displayarrange so the current
+   user can run the two exact pmset commands without a password.
+   Shows the admin dialog once. Returns 1 on success. */
+int dc_sleep_setup_sudoers(void) {
+    const char *user = getenv("USER");
+    if (!user || !*user) return 0;
+
+    /* Write to a temp file first, then install with correct perms.
+       visudo is not scriptable here, so we write the fragment directly
+       and rely on the fixed path + exact commands for safety. */
+    char cmd[768];
+    snprintf(cmd, sizeof(cmd),
+             "do shell script \""
+             "printf '%s ALL=(ALL) NOPASSWD: /usr/bin/pmset -b disablesleep 0, "
+             "/usr/bin/pmset -b disablesleep 1\\n' > /etc/sudoers.d/displayarrange && "
+             "chmod 440 /etc/sudoers.d/displayarrange"
+             "\" with administrator privileges", user);
+    char *argv[] = {"/usr/bin/osascript", "-e", cmd, NULL};
+    return run_quiet(argv[0], argv) && dc_sleep_sudo_ready();
+}
+
+/* Passwordless pmset via sudo. Only call when dc_sleep_sudo_ready(). */
+static int pmset_sudo(int disable) {
+    char val[2] = {disable ? '1' : '0', '\0'};
+    char *argv[] = {"/usr/bin/sudo", "-n", "/usr/bin/pmset",
+                    "-b", "disablesleep", val, NULL};
+    return run_quiet(argv[0], argv);
+}
+
+int dc_set_sleep_disabled(int disable) {
+    int cur = dc_sleep_disabled();
+    if (cur == disable) return 1;
+    if (cur < 0) return 0;
+
+    /* Preferred: passwordless sudo (after one-time setup). */
+    if (dc_sleep_sudo_ready())
+        return pmset_sudo(disable);
+
+    /* Fallback: macOS admin dialog every time. */
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),
+             "do shell script \"/usr/bin/pmset -b disablesleep %d\" "
+             "with administrator privileges", disable ? 1 : 0);
+    char *argv[] = {"/usr/bin/osascript", "-e", cmd, NULL};
+    return run_quiet(argv[0], argv);
 }

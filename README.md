@@ -46,8 +46,7 @@ open dist/DisplayArrange.app
 | **立即恢复布局** | 马上摆回保存的位置（全局快捷键 `⌃⌘R`） |
 | **立即黑屏** | 一键让所有屏幕变黑（类屏幕保护效果，显示器不掉线、不触发重新握手），按任意键或点击鼠标恢复（全局快捷键 `⌃⌘B`） |
 | **解锁后自动恢复** | 开关。打开后每次解锁都会自动摆正 |
-| **禁止休眠** | 开关。打开后 Mac 不会因空闲进入睡眠（合盖和手动「睡眠」不受影响） |
-| **禁止屏幕熄灭** | 开关。打开后屏幕不会因空闲变暗熄灭，与「禁止休眠」相互独立 |
+| **禁止休眠** | 开关。彻底禁用系统睡眠：苹果菜单的「睡眠」项变灰，重启后依然有效。首次开启可选配置免密（写一次 sudoers），之后切换不再要密码。退出 app 时会询问是否恢复 |
 | **延迟滑块** | 解锁后等 0–5 秒再恢复，给显示器重新握手留时间 |
 | **开机自动启动** | 登录后自动运行，不用手动开 |
 | **退出** | 完全退出 |
@@ -189,8 +188,7 @@ Click the dual-monitor icon in the menu bar:
 - **Restore Now**  (global hotkey `⌃⌘R`) — put it back immediately
 - **Blank Screen**  (global hotkey `⌃⌘B`) — turn every screen black, screensaver-style, without putting the displays to sleep (no re-handshake); any key or mouse button brings them back
 - **Auto-restore on unlock** — toggle automatic recovery
-- **Prevent sleep** — keep the Mac from idle sleep (lid-close and manual sleep still work)
-- **Prevent display sleep** — keep the screen from dimming off on idle; independent of the sleep toggle
+- **Prevent sleep** — disable system sleep entirely: the Apple-menu Sleep item greys out, persistent across reboots. First use offers a one-time passwordless setup (writes a sudoers rule); afterwards toggling never asks for a password. Quitting the app offers to restore it
 - **Delay slider** — wait 0–5 s after unlock before restoring
 - **Launch at login** — start automatically
 
