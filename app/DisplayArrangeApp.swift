@@ -161,16 +161,11 @@ final class UpdateChecker {
 
         // Install with sudo (passwordless if configured)
         let target = "/Applications/DisplayArrange.app"
-        let backup = "/Applications/DisplayArrange.app.backup"
-        let script = """
-        rm -rf '\(backup)' && \
-        mv '\(target)' '\(backup)' 2>/dev/null; \
-        cp -R '\(newAppURL.path)' '\(target)' && \
-        rm -rf '\(backup)'
-        """
+        let installScript = Bundle.main.path(forResource: "install-update", ofType: "sh")
+            ?? "/usr/local/bin/displayarrange-install"
         let sudo = Process()
         sudo.launchPath = "/usr/bin/sudo"
-        sudo.arguments = ["-n", "/bin/bash", "-c", script]
+        sudo.arguments = ["-n", installScript, newAppURL.path]
         do {
             try sudo.run()
             sudo.waitUntilExit()
@@ -190,7 +185,9 @@ final class UpdateChecker {
             relaunch.launchPath = "/usr/bin/open"
             relaunch.arguments = [target]
             try? relaunch.run()
-            NSApp.terminate(nil)
+            // Force exit without going through applicationShouldTerminate
+            // (which would prompt to restore sleep settings).
+            exit(0)
         }
     }
 

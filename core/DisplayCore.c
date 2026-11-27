@@ -479,12 +479,15 @@ int dc_sleep_setup_sudoers(void) {
 
     /* Write to a temp file first, then install with correct perms.
        visudo is not scriptable here, so we write the fragment directly
-       and rely on the fixed path + exact commands for safety. */
-    char cmd[768];
+       and rely on the fixed path + exact commands for safety.
+       Also allow the OTA install script bundled inside the app. */
+    char cmd[1024];
     snprintf(cmd, sizeof(cmd),
              "do shell script \""
              "printf '%s ALL=(ALL) NOPASSWD: /usr/bin/pmset -b disablesleep 0, "
-             "/usr/bin/pmset -b disablesleep 1\\n' > /etc/sudoers.d/displayarrange && "
+             "/usr/bin/pmset -b disablesleep 1, "
+             "/Applications/DisplayArrange.app/Contents/Resources/install-update.sh\\n' "
+             "> /etc/sudoers.d/displayarrange && "
              "chmod 440 /etc/sudoers.d/displayarrange"
              "\" with administrator privileges", user);
     char *argv[] = {"/usr/bin/osascript", "-e", cmd, NULL};
