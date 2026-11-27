@@ -4,6 +4,10 @@
 
 **平台要求：macOS 13+，Apple Silicon 和 Intel 均支持（universal binary）。**
 
+[![Latest Release](https://img.shields.io/github/v/release/flashsoft/DisplayArrange)](https://github.com/flashsoft/DisplayArrange/releases/latest)
+
+**[⬇️ 下载最新版 App](https://github.com/flashsoft/DisplayArrange/releases/latest/download/DisplayArrange.app.zip)** · [下载 CLI](https://github.com/flashsoft/DisplayArrange/releases/latest/download/DisplayArrange-macos-universal.zip) · [查看所有版本](https://github.com/flashsoft/DisplayArrange/releases/latest)
+
 [English](#english) | 中文
 
 ---
@@ -18,7 +22,9 @@ DisplayArrange 用 **display unit**（绑定物理端口的稳定标识）而不
 
 ### 方式一：下载 App（推荐）
 
-从 [Releases](https://github.com/flashsoft/DisplayArrange/releases) 下载 `DisplayArrange.app.zip`，解压后拖进「应用程序」文件夹即可。只要命令行的话可以下 `DisplayArrange-macos-universal.zip`。
+**👉 [点击直接下载最新版 DisplayArrange.app.zip](https://github.com/flashsoft/DisplayArrange/releases/latest/download/DisplayArrange.app.zip)**
+
+解压后拖进「应用程序」文件夹即可。只要命令行的话可以下 [DisplayArrange-macos-universal.zip](https://github.com/flashsoft/DisplayArrange/releases/latest/download/DisplayArrange-macos-universal.zip)。
 
 首次打开如果提示"未受信任的开发者"，在 系统设置 → 隐私与安全性 里点"仍要打开"。
 
@@ -46,9 +52,10 @@ open dist/DisplayArrange.app
 | **立即恢复布局** | 马上摆回保存的位置（全局快捷键 `⌃⌘R`） |
 | **立即黑屏** | 一键让所有屏幕变黑（类屏幕保护效果，显示器不掉线、不触发重新握手），按任意键或点击鼠标恢复（全局快捷键 `⌃⌘B`） |
 | **解锁后自动恢复** | 开关。打开后每次解锁都会自动摆正 |
-| **禁止休眠** | 开关。彻底禁用系统睡眠：苹果菜单的「睡眠」项变灰，重启后依然有效。首次开启可选配置免密（写一次 sudoers），之后切换不再要密码。退出 app 时会询问是否恢复 |
+| **禁止休眠** | 开关。彻底禁用系统睡眠：苹果菜单的「睡眠」项变灰，重启后依然有效。首次开启可选配置免密（写一次 sudoers），之后切换不再要密码；退出 app 时自动恢复系统睡眠 |
 | **延迟滑块** | 解锁后等 0–5 秒再恢复，给显示器重新握手留时间 |
 | **开机自动启动** | 登录后自动运行，不用手动开 |
+| **检查更新** | 自动检测新版本并一键 OTA 升级（启动时也会静默检查） |
 | **退出** | 完全退出 |
 
 ### 推荐工作流
@@ -110,6 +117,9 @@ A: 退出 app 后把 `DisplayArrange.app` 拖进废纸篓，再删掉配置目�
 ```sh
 rm -rf ~/.config/displayarrange
 rm -f ~/Library/LaunchAgents/com.displayarrange.app.plist
+# 如果配置过「禁止休眠」免密，删除 sudoers 规则并恢复系统睡眠：
+sudo rm -f /etc/sudoers.d/displayarrange
+sudo pmset -b disablesleep 0
 ```
 如果你还装过 CLI 的 watch 模式（见下节），一并卸载：
 ```sh
@@ -140,12 +150,17 @@ core/
 cli/
   cli.c                         命令行界面
 app/
-  DisplayArrangeApp.swift       菜单栏 app（AppKit，单文件）
+  DisplayArrangeApp.swift       菜单栏 app（AppKit，单文件，含 OTA）
   Info.plist                    app bundle 配置
+assets/
+  AppIcon.icns / icon_1024.png  应用图标
+scripts/
+  install-update.sh             OTA 安装脚本（打包进 app，配合 sudoers 免密执行）
 packaging/
   com.displayarrange.cli.plist  CLI watch 模式的 LaunchAgent 模板
 tests/
   characterization.c            DisplayCore 纯函数的行为表征测试（make test）
+VERSION                         当前版本号（构建时注入 Info.plist）
 Makefile                        一条命令同时编译 CLI 和 app
 ```
 
@@ -171,7 +186,9 @@ DisplayArrange uses the **display unit** (a stable per-port identifier) instead 
 
 **Requires macOS 13+. Universal binary — runs natively on both Apple Silicon and Intel Macs.**
 
-Download `DisplayArrange.app.zip` from [Releases](https://github.com/flashsoft/DisplayArrange/releases), unzip, and drag to your Applications folder. CLI-only: grab `DisplayArrange-macos-universal.zip`. Or build from source:
+**👉 [Download the latest DisplayArrange.app.zip](https://github.com/flashsoft/DisplayArrange/releases/latest/download/DisplayArrange.app.zip)**
+
+Unzip and drag to your Applications folder. CLI-only: grab [DisplayArrange-macos-universal.zip](https://github.com/flashsoft/DisplayArrange/releases/latest/download/DisplayArrange-macos-universal.zip). Or build from source:
 
 ```sh
 git clone https://github.com/flashsoft/DisplayArrange.git
@@ -188,9 +205,10 @@ Click the dual-monitor icon in the menu bar:
 - **Restore Now**  (global hotkey `⌃⌘R`) — put it back immediately
 - **Blank Screen**  (global hotkey `⌃⌘B`) — turn every screen black, screensaver-style, without putting the displays to sleep (no re-handshake); any key or mouse button brings them back
 - **Auto-restore on unlock** — toggle automatic recovery
-- **Prevent sleep** — disable system sleep entirely: the Apple-menu Sleep item greys out, persistent across reboots. First use offers a one-time passwordless setup (writes a sudoers rule); afterwards toggling never asks for a password. Quitting the app offers to restore it
+- **Prevent sleep** — disable system sleep entirely: the Apple-menu Sleep item greys out, persistent across reboots. First use offers a one-time passwordless setup (writes a sudoers rule); afterwards toggling never asks for a password. Quitting the app restores system sleep automatically
 - **Delay slider** — wait 0–5 s after unlock before restoring
 - **Launch at login** — start automatically
+- **Check for updates** — automatic OTA updates from GitHub Releases (also checked silently on launch)
 
 ### CLI
 
