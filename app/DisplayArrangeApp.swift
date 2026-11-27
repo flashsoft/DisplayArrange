@@ -179,22 +179,31 @@ final class UpdateChecker {
         }
 
         completion(true, "更新完成，即将重启")
-        // Relaunch: kill current process first, then open the new app.
-        // `open` alone won't start a new instance if one is already running.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            let pid = ProcessInfo.processInfo.processIdentifier
-            let kill = Process()
-            kill.launchPath = "/bin/kill"
-            kill.arguments = ["-9", "\(pid)"]
-            try? kill.run()
-            // Give kill a moment to take effect before opening
-            Thread.sleep(forTimeInterval: 0.5)
-            let relaunch = Process()
-            relaunch.launchPath = "/usr/bin/open"
-            relaunch.arguments = ["-n", target]  // -n = new instance
-            try? relaunch.run()
-            exit(0)
-        }
+        // Relaunch: use an external script that waits, then opens the new app.
+        // We kill ourselves immediately after spawning it, so the script must
+        // be fully detached (nohup + background).
+        let relaunchScript = """
+        #!/bin/bash
+        sleep 1
+        open -n "\(target)"
+        """
+        let scriptPath = NSTemporaryDirectory() + "displayarrange-relaunch.sh"
+        try? relaunchScript.write(toFile: scriptPath, atomically: true, encoding: .utf8)
+        let chmod = Process()
+        chmod.launchPath = "/bin/chmod"
+        chmod.arguments = ["+x", scriptPath]
+        try? chmod.run()
+        chmod.waitUntilExit()
+
+        let relaunch = Process()
+        relaunch.launchPath = "/bin/bash"
+        relaunch.arguments = [scriptPath]
+        // Detach from our process group so we survive our own death
+        relaunch.terminationHandler = nil
+        try? relaunch.run()
+        // Give the script a moment to start, then exit
+        Thread.sleep(forTimeInterval: 0.2)
+        exit(0)
     }
 
     private func isNewer(_ a: String, than b: String) -> Bool {
