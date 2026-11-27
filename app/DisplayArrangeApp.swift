@@ -179,14 +179,20 @@ final class UpdateChecker {
         }
 
         completion(true, "更新完成，即将重启")
-        // Relaunch after a short delay
+        // Relaunch: kill current process first, then open the new app.
+        // `open` alone won't start a new instance if one is already running.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let pid = ProcessInfo.processInfo.processIdentifier
+            let kill = Process()
+            kill.launchPath = "/bin/kill"
+            kill.arguments = ["-9", "\(pid)"]
+            try? kill.run()
+            // Give kill a moment to take effect before opening
+            Thread.sleep(forTimeInterval: 0.5)
             let relaunch = Process()
             relaunch.launchPath = "/usr/bin/open"
-            relaunch.arguments = [target]
+            relaunch.arguments = ["-n", target]  // -n = new instance
             try? relaunch.run()
-            // Force exit without going through applicationShouldTerminate
-            // (which would prompt to restore sleep settings).
             exit(0)
         }
     }
