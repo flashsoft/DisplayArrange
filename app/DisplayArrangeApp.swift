@@ -534,44 +534,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Restore system sleep on the way out if this app disabled it.
-    // Restoring needs root, so this shows the admin authorization
-    // dialog once; cancelling it leaves the setting untouched and
-    // still lets the app quit.
+    // With passwordless sudo configured this is silent; without it,
+    // the fallback osascript path still needs the admin dialog.
     func applicationShouldTerminate(
         _ sender: NSApplication
     ) -> NSApplication.TerminateReply {
         guard dc_sleep_disabled() == 1 else { return .terminateNow }
 
-        let alert = NSAlert()
-        alert.messageText = "退出前恢复系统睡眠？"
-        alert.informativeText =
-            "「禁止休眠」当前已开启。退出 DisplayArrange 将恢复系统睡眠" +
-            "（需要一次管理员授权）。"
-        alert.addButton(withTitle: "恢复并退出")
-        alert.addButton(withTitle: "保持禁用并退出")
-        alert.addButton(withTitle: "取消")
-        let resp = alert.runModal()
-
-        switch resp {
-        case .alertFirstButtonReturn:
-            DispatchQueue.global(qos: .userInitiated).async {
-                let ok = dc_set_sleep_disabled(0) != 0
-                DispatchQueue.main.async {
-                    if !ok {
-                        Settings.shared.lastStatus =
-                            "恢复失败（授权已取消），保持禁用"
-                    }
-                    // Quit regardless; a cancelled restore must not
-                    // trap the user in the app.
-                    NSApp.reply(toApplicationShouldTerminate: true)
-                }
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = dc_set_sleep_disabled(0)
+            DispatchQueue.main.async {
+                NSApp.reply(toApplicationShouldTerminate: true)
             }
-            return .terminateLater
-        case .alertSecondButtonReturn:
-            return .terminateNow   // keep disabled, quit now
-        default:
-            return .terminateCancel
         }
+        return .terminateLater
     }
 
     @objc private func onUnlock() {
