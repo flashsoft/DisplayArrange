@@ -78,9 +78,9 @@ final class UpdateChecker {
     /// Download, verify, install, and relaunch. Completion on main thread.
     func downloadAndInstall(completion: @escaping (Bool, String) -> Void) {
         guard let release = latestRelease,
-              let asset = release.assets.first(where: { $0.name.hasSuffix(".zip") }),
+              let asset = release.assets.first(where: { $0.name == "DisplayArrange.app.zip" }),
               let url = URL(string: asset.browser_download_url) else {
-            completion(false, "没有找到下载地址")
+            completion(false, "没有找到应用下载地址")
             return
         }
 
@@ -95,16 +95,24 @@ final class UpdateChecker {
         try? FileManager.default.removeItem(at: extractDir)
 
         URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                guard let tempURL = tempURL, error == nil else {
-                    completion(false, "下载失败：\(error?.localizedDescription ?? "未知错误")")
-                    return
-                }
+            // Move the file NOW, before the completion handler returns and
+            // the system deletes the temporary download.
+            var moveError: Error?
+            if let tempURL = tempURL, error == nil {
                 do {
                     try FileManager.default.moveItem(at: tempURL, to: zipURL)
                 } catch {
-                    completion(false, "保存下载文件失败")
+                    moveError = error
+                }
+            }
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let error = error {
+                    completion(false, "下载失败：\(error.localizedDescription)")
+                    return
+                }
+                if let moveError = moveError {
+                    completion(false, "保存下载文件失败：\(moveError.localizedDescription)")
                     return
                 }
                 self.install(zipURL: zipURL, extractDir: extractDir, completion: completion)
