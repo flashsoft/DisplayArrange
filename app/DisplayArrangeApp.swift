@@ -589,8 +589,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(loginItem)
         menu.addItem(.separator())
 
-        // Check for updates
-        let updateItem = NSMenuItem(title: "检查更新",
+        // Check for updates (with current version)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let updateItem = NSMenuItem(title: "检查更新 (v\(version))",
                                     action: #selector(onCheckUpdate),
                                     keyEquivalent: "")
         updateItem.target = self
