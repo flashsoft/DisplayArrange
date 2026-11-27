@@ -854,6 +854,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 // MARK: - Entry point
 
+// Single-instance check: exit if another instance is already running.
+// Use a small delay to ensure the system has registered this process,
+// then check if any OTHER instance exists.
+Thread.sleep(forTimeInterval: 0.1)
+let bundleID = Bundle.main.bundleIdentifier ?? "com.displayarrange.app"
+let currentPID = ProcessInfo.processInfo.processIdentifier
+let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+let otherApps = runningApps.filter { $0.processIdentifier != currentPID }
+if !otherApps.isEmpty {
+    // Another instance is already running; activate it and exit.
+    otherApps.first?.activate(options: [.activateAllWindows])
+    exit(0)
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
