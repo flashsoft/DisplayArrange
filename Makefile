@@ -18,6 +18,8 @@ PREFIX   ?= /usr/local
 CLI_BIN  := displayarrange
 APP_NAME := DisplayArrange
 DIST_DIR := dist
+VERSION := $(shell cat VERSION)
+# Inject version into Info.plist at build time
 APP_DIR  := $(DIST_DIR)/$(APP_NAME).app
 
 CORE     := core/DisplayCore.c core/DisplayCore.h
@@ -36,8 +38,8 @@ $(DIST_DIR)/$(CLI_BIN): cli/cli.c $(CORE)
 # ---------------------------------------------------------------- App
 app: $(APP_DIR)
 
-$(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist assets/AppIcon.icns
-	@echo "Building $(APP_DIR)..."
+$(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist assets/AppIcon.icns VERSION
+	@echo "Building $(APP_DIR) v$(VERSION)..."
 	@mkdir -p $(APP_DIR)/Contents/MacOS
 	@mkdir -p $(APP_DIR)/Contents/Resources
 	@for arch in arm64 x86_64; do \
@@ -56,8 +58,10 @@ $(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist assets/AppIcon.ic
 	@rm $(APP_DIR)/Contents/MacOS/$(APP_NAME).arm64 \
 	    $(APP_DIR)/Contents/MacOS/$(APP_NAME).x86_64
 	@cp app/Info.plist $(APP_DIR)/Contents/
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(APP_DIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(APP_DIR)/Contents/Info.plist
 	@cp assets/AppIcon.icns $(APP_DIR)/Contents/Resources/
-	@echo "Built $(APP_DIR)"
+	@echo "Built $(APP_DIR) v$(VERSION)"
 
 # ---------------------------------------------------------------- Tests
 TEST_BIN := $(DIST_DIR)/da_characterization

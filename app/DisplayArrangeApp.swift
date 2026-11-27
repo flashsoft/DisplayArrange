@@ -11,6 +11,199 @@ import Carbon.HIToolbox
 import ServiceManagement
 import UserNotifications
 
+// MARK: - OTA Update
+
+struct GitHubRelease: Codable {
+    let tag_name: String
+    let name: String
+    let body: String?
+    let assets: [Asset]
+    struct Asset: Codable {
+        let name: String
+        let browser_download_url: String
+    }
+}
+
+enum UpdateError: Error {
+    case noNetwork
+    case parseFailed
+    case downloadFailed
+    case unzipFailed
+    case installFailed
+}
+
+final class UpdateChecker {
+    static let shared = UpdateChecker()
+    private let repo = "flashsoft/DisplayArrange"
+    private let currentVersion: String
+    private var latestRelease: GitHubRelease?
+
+    init() {
+        currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
+    /// Check GitHub for a newer release. Completion on main thread.
+    func check(manual: Bool = false, completion: @escaping (Bool, String?) -> Void) {
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
+            completion(false, "无效的仓库地址")
+            return
+        }
+        var request = URLRequest(url: url)
+        request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 10
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let error = error {
+                    completion(false, manual ? "网络错误：\(error.localizedDescription)" : nil)
+                    return
+                }
+                guard let data = data,
+                      let release = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
+                    completion(false, manual ? "解析版本信息失败" : nil)
+                    return
+                }
+                self.latestRelease = release
+                let latest = release.tag_name.trimmingPrefix("v")
+                if self.isNewer(latest, than: self.currentVersion) {
+                    completion(true, "发现新版本 \(latest)")
+                } else {
+                    completion(false, manual ? "已是最新版本 \(self.currentVersion)" : nil)
+                }
+            }
+        }.resume()
+    }
+
+    /// Download, verify, install, and relaunch. Completion on main thread.
+    func downloadAndInstall(completion: @escaping (Bool, String) -> Void) {
+        guard let release = latestRelease,
+              let asset = release.assets.first(where: { $0.name.hasSuffix(".zip") }),
+              let url = URL(string: asset.browser_download_url) else {
+            completion(false, "没有找到下载地址")
+            return
+        }
+
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("DisplayArrange")
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let zipURL = cacheDir.appendingPathComponent("DisplayArrange-new.zip")
+        let extractDir = cacheDir.appendingPathComponent("extracted")
+
+        // Clean previous
+        try? FileManager.default.removeItem(at: zipURL)
+        try? FileManager.default.removeItem(at: extractDir)
+
+        URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                guard let tempURL = tempURL, error == nil else {
+                    completion(false, "下载失败：\(error?.localizedDescription ?? "未知错误")")
+                    return
+                }
+                do {
+                    try FileManager.default.moveItem(at: tempURL, to: zipURL)
+                } catch {
+                    completion(false, "保存下载文件失败")
+                    return
+                }
+                self.install(zipURL: zipURL, extractDir: extractDir, completion: completion)
+            }
+        }.resume()
+    }
+
+    private func install(zipURL: URL, extractDir: URL, completion: @escaping (Bool, String) -> Void) {
+        // Unzip
+        let unzip = Process()
+        unzip.launchPath = "/usr/bin/unzip"
+        unzip.arguments = ["-q", "-o", zipURL.path, "-d", extractDir.path]
+        do {
+            try unzip.run()
+            unzip.waitUntilExit()
+            guard unzip.terminationStatus == 0 else {
+                completion(false, "解压失败")
+                return
+            }
+        } catch {
+            completion(false, "解压失败：\(error.localizedDescription)")
+            return
+        }
+
+        // Find .app
+        guard let items = try? FileManager.default.contentsOfDirectory(atPath: extractDir.path),
+              let appName = items.first(where: { $0.hasSuffix(".app") }) else {
+            completion(false, "解压后未找到应用")
+            return
+        }
+        let newAppURL = extractDir.appendingPathComponent(appName)
+        let newBinary = newAppURL.appendingPathComponent("Contents/MacOS/DisplayArrange")
+
+        // Verify binary exists and is executable
+        guard FileManager.default.isExecutableFile(atPath: newBinary.path) else {
+            completion(false, "新版本校验失败")
+            return
+        }
+
+        // Clear quarantine
+        let xattr = Process()
+        xattr.launchPath = "/usr/bin/xattr"
+        xattr.arguments = ["-cr", newAppURL.path]
+        try? xattr.run()
+        xattr.waitUntilExit()
+
+        // Install with sudo (passwordless if configured)
+        let target = "/Applications/DisplayArrange.app"
+        let backup = "/Applications/DisplayArrange.app.backup"
+        let script = """
+        rm -rf '\(backup)' && \
+        mv '\(target)' '\(backup)' 2>/dev/null; \
+        cp -R '\(newAppURL.path)' '\(target)' && \
+        rm -rf '\(backup)'
+        """
+        let sudo = Process()
+        sudo.launchPath = "/usr/bin/sudo"
+        sudo.arguments = ["-n", "/bin/bash", "-c", script]
+        do {
+            try sudo.run()
+            sudo.waitUntilExit()
+            guard sudo.terminationStatus == 0 else {
+                completion(false, "安装失败，需要管理员权限")
+                return
+            }
+        } catch {
+            completion(false, "安装失败：\(error.localizedDescription)")
+            return
+        }
+
+        completion(true, "更新完成，即将重启")
+        // Relaunch after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let relaunch = Process()
+            relaunch.launchPath = "/usr/bin/open"
+            relaunch.arguments = [target]
+            try? relaunch.run()
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func isNewer(_ a: String, than b: String) -> Bool {
+        let aParts = a.split(separator: ".").compactMap { Int($0) }
+        let bParts = b.split(separator: ".").compactMap { Int($0) }
+        for i in 0..<max(aParts.count, bParts.count) {
+            let x = i < aParts.count ? aParts[i] : 0
+            let y = i < bParts.count ? bParts[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+}
+
+extension String {
+    func trimmingPrefix(_ prefix: String) -> String {
+        hasPrefix(prefix) ? String(dropFirst(prefix.count)) : self
+    }
+}
+
 // MARK: - Bridge to the C engine
 
 @_silgen_name("dc_collect")
@@ -210,7 +403,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSNotification.Name("com.apple.screenIsUnlocked"),
             object: nil)
 
+        // Silent update check on launch (no UI unless an update exists)
+        UpdateChecker.shared.check(manual: false) { [weak self] hasUpdate, _ in
+            if hasUpdate {
+                DispatchQueue.main.async {
+                    self?.showUpdateAlert()
+                }
+            }
+        }
+
         refreshUI()
+    }
+
+    private func showUpdateAlert() {
+        let alert = NSAlert()
+        alert.messageText = "发现新版本"
+        alert.informativeText = "DisplayArrange 有新版本可用，是否立即更新？"
+        alert.addButton(withTitle: "立即更新")
+        alert.addButton(withTitle: "稍后")
+        if alert.runModal() == .alertFirstButtonReturn {
+            performUpdate()
+        }
+    }
+
+    @objc private func onCheckUpdate() {
+        Settings.shared.lastStatus = "正在检查更新…"
+        UpdateChecker.shared.check(manual: true) { [weak self] hasUpdate, message in
+            Settings.shared.lastStatus = message ?? "检查完成"
+            if hasUpdate {
+                self?.showUpdateAlert()
+            } else if let msg = message {
+                let alert = NSAlert()
+                alert.messageText = msg
+                alert.runModal()
+            }
+            self?.refreshUI()
+        }
+    }
+
+    private func performUpdate() {
+        Settings.shared.lastStatus = "正在下载更新…"
+        UpdateChecker.shared.downloadAndInstall { [weak self] success, message in
+            Settings.shared.lastStatus = message
+            if !success {
+                let alert = NSAlert()
+                alert.messageText = "更新失败"
+                alert.informativeText = message
+                alert.runModal()
+            }
+            self?.refreshUI()
+        }
     }
 
     // Register ⌃⌘S / ⌃⌘R / ⌃⌘B as true global hotkeys. Menu
@@ -345,6 +587,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                keyEquivalent: "")
         loginItem.target = self
         menu.addItem(loginItem)
+        menu.addItem(.separator())
+
+        // Check for updates
+        let updateItem = NSMenuItem(title: "检查更新",
+                                    action: #selector(onCheckUpdate),
+                                    keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
         menu.addItem(.separator())
 
         // Quit
