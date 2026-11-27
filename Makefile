@@ -38,7 +38,7 @@ $(DIST_DIR)/$(CLI_BIN): cli/cli.c $(CORE)
 # ---------------------------------------------------------------- App
 app: $(APP_DIR)
 
-$(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist assets/AppIcon.icns VERSION
+$(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist assets/AppIcon.icns scripts/install-update.sh VERSION
 	@echo "Building $(APP_DIR) v$(VERSION)..."
 	@mkdir -p $(APP_DIR)/Contents/MacOS
 	@mkdir -p $(APP_DIR)/Contents/Resources
@@ -61,6 +61,8 @@ $(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist assets/AppIcon.ic
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(APP_DIR)/Contents/Info.plist
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(APP_DIR)/Contents/Info.plist
 	@cp assets/AppIcon.icns $(APP_DIR)/Contents/Resources/
+	@cp scripts/install-update.sh $(APP_DIR)/Contents/Resources/
+	@chmod +x $(APP_DIR)/Contents/Resources/install-update.sh
 	@echo "Built $(APP_DIR) v$(VERSION)"
 
 # ---------------------------------------------------------------- Tests
