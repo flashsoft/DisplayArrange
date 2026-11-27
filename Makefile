@@ -36,7 +36,7 @@ $(DIST_DIR)/$(CLI_BIN): cli/cli.c $(CORE)
 # ---------------------------------------------------------------- App
 app: $(APP_DIR)
 
-$(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist
+$(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist assets/AppIcon.icns
 	@echo "Building $(APP_DIR)..."
 	@mkdir -p $(APP_DIR)/Contents/MacOS
 	@mkdir -p $(APP_DIR)/Contents/Resources
@@ -56,6 +56,7 @@ $(APP_DIR): app/DisplayArrangeApp.swift $(CORE) app/Info.plist
 	@rm $(APP_DIR)/Contents/MacOS/$(APP_NAME).arm64 \
 	    $(APP_DIR)/Contents/MacOS/$(APP_NAME).x86_64
 	@cp app/Info.plist $(APP_DIR)/Contents/
+	@cp assets/AppIcon.icns $(APP_DIR)/Contents/Resources/
 	@echo "Built $(APP_DIR)"
 
 # ---------------------------------------------------------------- Tests
