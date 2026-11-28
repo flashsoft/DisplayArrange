@@ -363,6 +363,7 @@ int dc_restore(const char *path, int only_if_different, int verbose,
 /* Sleep prevention                                                   */
 /* ------------------------------------------------------------------ */
 static IOPMAssertionID g_sleep_assertion = 0;
+static IOPMAssertionID g_display_assertion = 0;
 
 static int set_assertion(CFStringRef type, CFStringRef name,
                          IOPMAssertionID *slot, int enable) {
@@ -392,6 +393,12 @@ int dc_set_prevent_sleep(int enable) {
     return set_assertion(kIOPMAssertionTypePreventSystemSleep,
                          CFSTR("DisplayArrange prevent sleep"),
                          &g_sleep_assertion, enable);
+}
+
+int dc_set_prevent_display_sleep(int enable) {
+    return set_assertion(kIOPMAssertionTypePreventUserIdleDisplaySleep,
+                         CFSTR("DisplayArrange prevent display sleep"),
+                         &g_display_assertion, enable);
 }
 
 /* ------------------------------------------------------------------ */

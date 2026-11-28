@@ -1,11 +1,12 @@
 /*
- * characterization.c - lock in the current observable behavior of the
- * pure parts of DisplayCore (JSON emit/parse, layout matching, file I/O).
+ * characterization.c - lock in the current observable behavior of
+ * DisplayCore (JSON emit/parse, layout matching, file I/O, and the
+ * display idle-sleep assertion).
  *
  * These tests describe the implementation AS IT IS, including quirks of
  * the minimal JSON parser; they are a refactor safety net, not a spec.
- * They never touch the real display configuration: dc_collect/dc_apply
- * are intentionally not exercised here.
+ * dc_apply is intentionally not exercised here so tests never move
+ * the user's displays; dc_restore is only run when it is a no-op.
  *
  * Build & run:  make test
  */
@@ -15,6 +16,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/pwr_mgt/IOPMLib.h>
 
 #include "../core/DisplayCore.h"
 
@@ -247,6 +251,79 @@ static void test_restore(void) {
     CHECK(dc_restore(path, 1, 0, NULL) == DC_RESTORE_ALREADY);
 }
 
+/* ---- Display sleep assertion -------------------------------------- */
+
+static int count_own_assertions(CFStringRef type, CFStringRef name,
+                                int *out_system_sleep) {
+    CFDictionaryRef by_pid = NULL;
+    if (IOPMCopyAssertionsByProcess(&by_pid) != kIOReturnSuccess || !by_pid)
+        return -1;
+
+    int pid = (int)getpid();
+    CFNumberRef key = CFNumberCreate(NULL, kCFNumberIntType, &pid);
+    CFArrayRef mine = key ? CFDictionaryGetValue(by_pid, key) : NULL;
+    if (key) CFRelease(key);
+
+    int display_count = 0;
+    int system_count = 0;
+    if (mine && CFGetTypeID(mine) == CFArrayGetTypeID()) {
+        CFIndex n = CFArrayGetCount(mine);
+        for (CFIndex i = 0; i < n; i++) {
+            CFDictionaryRef a = CFArrayGetValueAtIndex(mine, i);
+            if (!a || CFGetTypeID(a) != CFDictionaryGetTypeID()) continue;
+            CFTypeRef t = CFDictionaryGetValue(a, kIOPMAssertionTypeKey);
+            CFTypeRef nm = CFDictionaryGetValue(a, kIOPMAssertionNameKey);
+            if (t && CFGetTypeID(t) == CFStringGetTypeID() &&
+                CFEqual(t, type) &&
+                nm && CFGetTypeID(nm) == CFStringGetTypeID() &&
+                CFEqual(nm, name))
+                display_count++;
+            if (t && CFGetTypeID(t) == CFStringGetTypeID() &&
+                CFEqual(t, kIOPMAssertionTypePreventSystemSleep))
+                system_count++;
+        }
+    }
+    CFRelease(by_pid);
+    if (out_system_sleep) *out_system_sleep = system_count;
+    return display_count;
+}
+
+static void test_prevent_display_sleep(void) {
+    CFStringRef name = CFSTR("DisplayArrange prevent display sleep");
+    int sys = -1;
+    if (count_own_assertions(kIOPMAssertionTypePreventUserIdleDisplaySleep,
+                             name, &sys) < 0) {
+        printf("SKIP  dc_set_prevent_display_sleep checks (no IOPM access)\n");
+        return;
+    }
+
+    int sys_before = sys;
+    int rc = dc_set_prevent_display_sleep(1);
+    int after_on = count_own_assertions(
+        kIOPMAssertionTypePreventUserIdleDisplaySleep, name, &sys);
+    if (!rc || after_on < 0) {
+        printf("SKIP  dc_set_prevent_display_sleep checks (headless session)\n");
+        return;
+    }
+    CHECK(rc == 1);
+
+    CHECK(after_on == 1);
+    CHECK(sys == sys_before);
+
+    /* Enabling twice reuses the existing assertion instead of leaking one. */
+    CHECK(dc_set_prevent_display_sleep(1) == 1);
+    CHECK(count_own_assertions(
+              kIOPMAssertionTypePreventUserIdleDisplaySleep, name, &sys) == 1);
+
+    CHECK(dc_set_prevent_display_sleep(0) == 1);
+    CHECK(count_own_assertions(
+              kIOPMAssertionTypePreventUserIdleDisplaySleep, name, &sys) == 0);
+    CHECK(sys == sys_before);
+
+    /* Disabling when already off is a harmless no-op. */
+    CHECK(dc_set_prevent_display_sleep(0) == 1);
+}
+
 int main(void) {
     test_emit_golden();
     test_round_trip();
@@ -254,6 +331,7 @@ int main(void) {
     test_layouts_equal();
     test_file_io();
     test_restore();
+    test_prevent_display_sleep();
 
     if (failures) {
         printf("\n%d check(s) FAILED\n", failures);

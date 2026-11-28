@@ -254,6 +254,9 @@ func dc_restore(_ path: UnsafePointer<CChar>?,
 @_silgen_name("dc_set_prevent_sleep")
 func dc_set_prevent_sleep(_ enable: Int32) -> Int32
 
+@_silgen_name("dc_set_prevent_display_sleep")
+func dc_set_prevent_display_sleep(_ enable: Int32) -> Int32
+
 @_silgen_name("dc_sleep_disabled")
 func dc_sleep_disabled() -> Int32
 
@@ -289,6 +292,13 @@ final class Settings: ObservableObject {
             _ = dc_set_prevent_sleep(preventSleep ? 1 : 0)
         }
     }
+    @Published var preventDisplaySleep: Bool {
+        didSet {
+            UserDefaults.standard.set(preventDisplaySleep,
+                                      forKey: "preventDisplaySleep")
+            _ = dc_set_prevent_display_sleep(preventDisplaySleep ? 1 : 0)
+        }
+    }
     // Only mutated on the main thread (launch alignment, toggle action).
     @Published var blockSystemSleep: Bool = false
     @Published var lastStatus: String = "就绪"
@@ -299,6 +309,8 @@ final class Settings: ObservableObject {
         self.delaySeconds  = d.object(forKey: "delaySeconds") as? Double ?? 0.8
         self.launchAtLogin = d.object(forKey: "launchAtLogin") as? Bool ?? false
         self.preventSleep  = d.object(forKey: "preventSleep") as? Bool ?? false
+        self.preventDisplaySleep =
+            d.object(forKey: "preventDisplaySleep") as? Bool ?? false
     }
 }
 
@@ -373,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var toggleItem: NSMenuItem!
     private var sleepItem: NSMenuItem!
+    private var displaySleepItem: NSMenuItem!
     private var delaySlider: NSSlider!
     private var delayLabel: NSTextField!
     private var loginItem: NSMenuItem!
@@ -409,6 +422,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (assertions do not survive process restarts).
         if Settings.shared.preventSleep {
             _ = dc_set_prevent_sleep(1)
+        }
+        if Settings.shared.preventDisplaySleep {
+            _ = dc_set_prevent_display_sleep(1)
         }
 
         // The sleep toggle drives the system-wide pmset disablesleep
@@ -593,12 +609,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(delayItem)
         menu.addItem(.separator())
 
-        // System sleep toggle (separate group: system-level setting)
+        // Power toggles: system sleep (pmset) and display idle sleep
+        // (IOKit assertion) are independent switches.
         sleepItem = NSMenuItem(title: "禁止休眠",
                                action: #selector(onToggleSleep),
                                keyEquivalent: "")
         sleepItem.target = self
         menu.addItem(sleepItem)
+
+        displaySleepItem = NSMenuItem(title: "禁止屏幕熄灭",
+                                      action: #selector(onToggleDisplaySleep),
+                                      keyEquivalent: "")
+        displaySleepItem.target = self
+        menu.addItem(displaySleepItem)
         menu.addItem(.separator())
 
         // Launch at login
@@ -631,6 +654,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let s = Settings.shared
         toggleItem.state = s.autoRestore ? .on : .off
         sleepItem.state  = s.blockSystemSleep ? .on : .off
+        displaySleepItem.state = s.preventDisplaySleep ? .on : .off
         loginItem.state  = s.launchAtLogin ? .on : .off
         delaySlider.doubleValue = s.delaySeconds
         delayLabel.stringValue = String(
@@ -786,6 +810,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.refreshUI()
             }
         }
+    }
+
+    @objc private func onToggleDisplaySleep() {
+        Settings.shared.preventDisplaySleep.toggle()
+        refreshUI()
     }
 
     @objc private func onToggleLogin() {

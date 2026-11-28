@@ -53,6 +53,7 @@ open dist/DisplayArrange.app
 | **立即黑屏** | 一键让所有屏幕变黑（类屏幕保护效果，显示器不掉线、不触发重新握手），按任意键或点击鼠标恢复（全局快捷键 `⌃⌘B`） |
 | **解锁后自动恢复** | 开关。打开后每次解锁都会自动摆正 |
 | **禁止休眠** | 开关。彻底禁用系统睡眠：苹果菜单的「睡眠」项变灰，重启后依然有效。首次开启可选配置免密（写一次 sudoers），之后切换不再要密码；退出 app 时自动恢复系统睡眠 |
+| **禁止屏幕熄灭** | 开关。屏幕不会因空闲变暗或熄灭，无需管理员密码，与「禁止休眠」相互独立；退出 app 时自动失效 |
 | **延迟滑块** | 解锁后等 0–5 秒再恢复，给显示器重新握手留时间 |
 | **开机自动启动** | 登录后自动运行，不用手动开 |
 | **检查更新** | 自动检测新版本并一键 OTA 升级（启动时也会静默检查） |
@@ -67,7 +68,7 @@ open dist/DisplayArrange.app
 
 ## 命令行版本
 
-除了图形 app，仓库还提供一个 CLI，覆盖布局的查看/保存/恢复/解锁监听（「禁止休眠」为 app 专属开关），适合脚本化或远程 SSH 使用。
+除了图形 app，仓库还提供一个 CLI，覆盖布局的查看/保存/恢复/解锁监听（「禁止休眠」「禁止屏幕熄灭」为 app 专属开关），适合脚本化或远程 SSH 使用。
 
 ```sh
 make cli                    # 编译出 dist/displayarrange
@@ -206,6 +207,7 @@ Click the dual-monitor icon in the menu bar:
 - **Blank Screen**  (global hotkey `⌃⌘B`) — turn every screen black, screensaver-style, without putting the displays to sleep (no re-handshake); any key or mouse button brings them back
 - **Auto-restore on unlock** — toggle automatic recovery
 - **Prevent sleep** — disable system sleep entirely: the Apple-menu Sleep item greys out, persistent across reboots. First use offers a one-time passwordless setup (writes a sudoers rule); afterwards toggling never asks for a password. Quitting the app restores system sleep automatically
+- **Prevent display sleep** — keep the screen from dimming or turning off on idle; no admin password needed, independent of the sleep toggle, released automatically on quit
 - **Delay slider** — wait 0–5 s after unlock before restoring
 - **Launch at login** — start automatically
 - **Check for updates** — automatic OTA updates from GitHub Releases (also checked silently on launch)

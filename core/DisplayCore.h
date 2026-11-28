@@ -74,6 +74,14 @@ int  dc_restore(const char *path, int only_if_different, int verbose,
    Returns 1 on success, 0 on failure. */
 int  dc_set_prevent_sleep(int enable);
 
+/* Hold or release a power assertion preventing the displays from
+   sleeping on idle (kIOPMAssertionTypePreventUserIdleDisplaySleep).
+   Process-local: it is released automatically when the process exits,
+   and requires no administrator privileges. Independent of both
+   dc_set_prevent_sleep and pmset disablesleep.
+   Returns 1 on success, 0 on failure. */
+int  dc_set_prevent_display_sleep(int enable);
+
 /* System-level "Sleep" disable (pmset disablesleep). While disabled,
    the Apple-menu Sleep item is greyed out and the setting persists
    across reboots. dc_sleep_disabled reads the power-management
